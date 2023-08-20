@@ -1,0 +1,1 @@
+cppcheck.exe --enable=all --language=c++ --std=c++23 --platform=win64 -I C:/tools/vcpkg/installed/x64-windows-static/include/ --suppress=missingIncludeSystem -f .\src\*
