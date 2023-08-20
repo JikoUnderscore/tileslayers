@@ -230,30 +230,32 @@ struct Camera {
     static const constexpr i32 MOUSE_MOVE_LIMIT_X = 360;
     static const constexpr i32 MOUSE_MOVE_LIMIT_Y = 250;
 
-    fn folow_player(this Camera & self,  Vector2f& player_pos,  Vector2f& map_pos, const i32 mouse_x, const i32 mouse_y ) noexcept -> void{
-        i32 mouse_pos_x = mouse_x - (LOGICAL_RES_1280/2) - (PLayer::WIDTH/2);
-        i32 mouse_pos_y = mouse_y - (LOGICAL_RES_720/2) - (PLayer::HEIGHT/2);
+    fn folow_player(this Camera& self, Vector2f& player_pos, Vector2f& map_pos, const i32 mouse_x, const i32 mouse_y) noexcept -> void {
+        i32 mouse_pos_x{ mouse_x - (LOGICAL_RES_1280 / 2) - (PLayer::WIDTH / 2) };
+        i32 mouse_pos_y{ mouse_y - (LOGICAL_RES_720 / 2) - (PLayer::HEIGHT / 2) };
 
-      if (mouse_pos_x < -MOUSE_MOVE_LIMIT_X) {
+        if (mouse_pos_x < -MOUSE_MOVE_LIMIT_X) {
             mouse_pos_x = -MOUSE_MOVE_LIMIT_X;
-        } else if (mouse_pos_x > MOUSE_MOVE_LIMIT_X) {
+        }
+        else if (mouse_pos_x > MOUSE_MOVE_LIMIT_X) {
             mouse_pos_x = MOUSE_MOVE_LIMIT_X;
         }
         if (mouse_pos_y < -MOUSE_MOVE_LIMIT_Y) {
             mouse_pos_y = -MOUSE_MOVE_LIMIT_Y;
-        } else if (mouse_pos_y > MOUSE_MOVE_LIMIT_Y) {
+        }
+        else if (mouse_pos_y > MOUSE_MOVE_LIMIT_Y) {
             mouse_pos_y = MOUSE_MOVE_LIMIT_Y;
         }
 
-        self.offset_float.x += player_pos.x - self.offset_float.x - (LOGICAL_RES_1280/2) + mouse_pos_x;
-        self.offset_float.y += player_pos.y - self.offset_float.y - (LOGICAL_RES_720/2) + mouse_pos_y;
-    
+        self.offset_float.x += player_pos.x - self.offset_float.x - (LOGICAL_RES_1280 / 2) + mouse_pos_x;
+        self.offset_float.y += player_pos.y - self.offset_float.y - (LOGICAL_RES_720 / 2) + mouse_pos_y;
+
         // const i32 offset_int_x = static
         player_pos.x = player_pos.x - self.offset_float.x;
         player_pos.y = player_pos.y - self.offset_float.y;
 
-        map_pos.x +=  - self.offset_float.x;
-        map_pos.y +=  - self.offset_float.y;
+        map_pos.x += -self.offset_float.x;
+        map_pos.y += -self.offset_float.y;
     }
 };
 
@@ -274,9 +276,9 @@ struct GameStatePersistent {
         return GameStatePersistent{
             .is_game_running = true,
             .curent_screen = ScreensID::StartMenu,
-            .pla = PLayer::init(0,0),
+            .pla = PLayer::init(0, 0),
             .camera = Camera{ .offset_float = Vector2f::zero() },
-    
+
         };
     }
 };
@@ -284,7 +286,7 @@ struct GameStatePersistent {
 struct Texture {
     SDL_Texture* raw_texure;
 
-    fn deinit(this Texture& self) noexcept -> void {
+    fn deinit(this Texture const& self) noexcept -> void {
         SDL_DestroyTexture(self.raw_texure);
     }
 };
@@ -310,13 +312,10 @@ struct Renderer {
             return std::unexpected(Errors::RendererInitErr::SDLCreateRendererErr);
         }
 
-        let res {SDL_RenderSetLogicalSize(renderer, LOGICAL_RES_1280, LOGICAL_RES_720)};
-        if (res != 0)
-        {
+        let res{ SDL_RenderSetLogicalSize(renderer, LOGICAL_RES_1280, LOGICAL_RES_720) };
+        if (res != 0) {
             return std::unexpected(Errors::RendererInitErr::SDLCreateRendererErr);
-
         }
-        
 
 
         return Renderer{
@@ -337,7 +336,7 @@ struct Renderer {
         return {};
     }
 
-    fn deinit(this Renderer& self) noexcept -> void {
+    fn deinit(this Renderer const& self) noexcept -> void {
         SDL_DestroyRenderer(self.raw_renderer);
         SDL_DestroyWindow(self.raw_window);
         IMG_Quit();
@@ -345,11 +344,11 @@ struct Renderer {
     }
 
     fn copy_with_size(this Renderer& self, Texture texture, Vector2f pos, const i32 width, const i32 height) noexcept -> void {
-        #ifdef _DEBUG
+#ifdef _DEBUG
         SDL_assert(width > 0);
         SDL_assert(height > 0);
-        #endif
-        
+#endif
+
         let dstrect{
             SDL_Rect{
             .x = static_cast<i32>(pos.x),
@@ -377,12 +376,12 @@ struct Renderer {
         (void)SDL_RenderCopy(self.raw_renderer, texture.raw_texure, nullptr, nullptr);
     }
 
-    fn present(this Renderer& self) noexcept -> void {
+    fn present(this Renderer const& self) noexcept -> void {
         SDL_RenderPresent(self.raw_renderer);
     }
 
     /// Destructor: `Texture::deinit()`
-    fn load_texture_from_file(this Renderer& self, char const* filename)->std::expected<Texture, Errors::IMGLoadTextureErr> {
+    fn load_texture_from_file(this Renderer const& self, char const* filename)->std::expected<Texture, Errors::IMGLoadTextureErr> {
         let raw{ IMG_LoadTexture(self.raw_renderer, filename) };
         if (raw == nullptr) {
             return std::unexpected(Errors::IMGLoadTextureErr::SDLIMGLoadTextureErr);
@@ -477,8 +476,8 @@ bg_internal fn level_one_screen(Renderer& corr, GameStatePersistent& game)->void
     }
 
     let keyboard{ KeyboardState::init() };
-    i32 mouse_x {};
-    i32 mouse_y {};
+    i32 mouse_x{};
+    i32 mouse_y{};
 
 
     while (is_running_screen) {
@@ -495,12 +494,13 @@ bg_internal fn level_one_screen(Renderer& corr, GameStatePersistent& game)->void
                     // }
 
                 case event::MouseMotion: {
-                    mouse_x= e.motion.x;
-                    mouse_y= e.motion.y;
+                    mouse_x = e.motion.x;
+                    mouse_y = e.motion.y;
 
-                }break;
+                } break;
 
-                default: break;
+                default:
+                    break;
             }
         }
         if (keyboard.is_scancode_pressed(SDL_SCANCODE_A)) {
@@ -519,7 +519,7 @@ bg_internal fn level_one_screen(Renderer& corr, GameStatePersistent& game)->void
 
         // printf("pla {x %f , y %f} map {x %f, y %f}\n", game.pla.position.x, game.pla.position.y, map_pos.x, map_pos.y);
 
-        game.camera.folow_player(game.pla.position, map_pos,mouse_x, mouse_y);
+        game.camera.folow_player(game.pla.position, map_pos, mouse_x, mouse_y);
 
         { // shit render code
             (void)SDL_RenderClear(corr.raw_renderer);
