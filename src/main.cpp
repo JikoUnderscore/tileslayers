@@ -2,6 +2,7 @@
 #include "SDL2/SDL_image.h"
 #undef main
 #include <expected>
+#include <span>
 #include "defines.h"
 
 
@@ -17,20 +18,22 @@ enum ALLERRORS : u8 {
     SDLCreateRendererErr,
     SDLIMGInitErr,
     SDLIMGLoadTextureErr,
+    SDLRenderSetLogicalSizeErr,
 };
 
 enum class RendererInitErr : u8 {
-    SDLInitErr = SDLInitErr,
-    SDLCreateWindowErr = SDLCreateWindowErr,
-    SDLCreateRendererErr = SDLCreateRendererErr,
+    SDLInitErr = ALLERRORS::SDLInitErr,
+    SDLCreateWindowErr = ALLERRORS::SDLCreateWindowErr,
+    SDLCreateRendererErr = ALLERRORS::SDLCreateRendererErr,
+    SDLRenderSetLogicalSizeErr = ALLERRORS::SDLRenderSetLogicalSizeErr,
 };
 
 enum class IMGInitErr : u8 {
-    SDLIMGInitErr = SDLIMGInitErr,
+    SDLIMGInitErr = ALLERRORS::SDLIMGInitErr,
 };
 
 enum class IMGLoadTextureErr : u8 {
-    SDLIMGLoadTextureErr = SDLIMGLoadTextureErr,
+    SDLIMGLoadTextureErr = ALLERRORS::SDLIMGLoadTextureErr,
 };
 
 
@@ -44,6 +47,9 @@ auto operator<<(std::ostream& out, const ALLERRORS value) -> std::ostream& {
         PROCESS_VAL(ALLERRORS::SDLInitErr);
         PROCESS_VAL(ALLERRORS::SDLCreateWindowErr);
         PROCESS_VAL(ALLERRORS::SDLCreateRendererErr);
+        PROCESS_VAL(ALLERRORS::SDLIMGInitErr);
+        PROCESS_VAL(ALLERRORS::SDLIMGLoadTextureErr);
+        PROCESS_VAL(ALLERRORS::SDLRenderSetLogicalSizeErr);
     }
 #undef PROCESS_VAL
 
@@ -141,16 +147,35 @@ namespace event {
     }
 } // namespace event
 
+static const constexpr i32 LOGICAL_RES_1280 = 1280;
+static const constexpr i32 LOGICAL_RES_720 = 720;
+
+struct KeyboardState {
+    std::span<const u8> state;
+
+    static_fn init() noexcept -> KeyboardState {
+        int len{};
+        auto ptr{ SDL_GetKeyboardState(&len) };
+
+        return KeyboardState{
+            .state = std::span<const u8>(ptr, len),
+        };
+    }
+
+    fn is_scancode_pressed(this KeyboardState const& self, const SDL_Scancode sc) noexcept -> bool {
+        return self.state[static_cast<usize>(sc)] != 0;
+    }
+};
 
 struct Vector2f {
-    i32 x;
-    i32 y;
+    f32 x;
+    f32 y;
 
 
     static_fn zero()->Vector2f {
         return Vector2f{
-            .x = 0,
-            .y = 0,
+            .x = 0.0,
+            .y = 0.0,
         };
     }
 };
@@ -183,24 +208,58 @@ struct FpsCap {
 };
 
 
-struct Camera {
-    Vector2f offset_float;
-};
-
 struct PLayer {
     Vector2f position;
-    Camera camera;
 
-    static_fn init(const i32 x, const i32 y)->PLayer {
-        return PLayer{ .position = Vector2f{ .x = x, .y = y },
-                       .camera = Camera{
-                       .offset_float = Vector2f::zero(),
-                       } };
+    static const constexpr i32 WIDTH = 24;
+    static const constexpr i32 HEIGHT = 24;
+    static const constexpr f32 SPEED = 200.0f;
+
+
+    static_fn init(const f32 x, const f32 y)->PLayer {
+        return PLayer{
+            .position = Vector2f{ .x = x, .y = y },
+        };
     }
 };
 
+
+struct Camera {
+    Vector2f offset_float;
+
+    static const constexpr i32 MOUSE_MOVE_LIMIT_X = 360;
+    static const constexpr i32 MOUSE_MOVE_LIMIT_Y = 250;
+
+    fn folow_player(this Camera & self,  Vector2f& player_pos,  Vector2f& map_pos, const i32 mouse_x, const i32 mouse_y ) noexcept -> void{
+        i32 mouse_pos_x = mouse_x - (LOGICAL_RES_1280/2) - (PLayer::WIDTH/2);
+        i32 mouse_pos_y = mouse_y - (LOGICAL_RES_720/2) - (PLayer::HEIGHT/2);
+
+      if (mouse_pos_x < -MOUSE_MOVE_LIMIT_X) {
+            mouse_pos_x = -MOUSE_MOVE_LIMIT_X;
+        } else if (mouse_pos_x > MOUSE_MOVE_LIMIT_X) {
+            mouse_pos_x = MOUSE_MOVE_LIMIT_X;
+        }
+        if (mouse_pos_y < -MOUSE_MOVE_LIMIT_Y) {
+            mouse_pos_y = -MOUSE_MOVE_LIMIT_Y;
+        } else if (mouse_pos_y > MOUSE_MOVE_LIMIT_Y) {
+            mouse_pos_y = MOUSE_MOVE_LIMIT_Y;
+        }
+
+        self.offset_float.x += player_pos.x - self.offset_float.x - (LOGICAL_RES_1280/2) + mouse_pos_x;
+        self.offset_float.y += player_pos.y - self.offset_float.y - (LOGICAL_RES_720/2) + mouse_pos_y;
+    
+        // const i32 offset_int_x = static
+        player_pos.x = player_pos.x - self.offset_float.x;
+        player_pos.y = player_pos.y - self.offset_float.y;
+
+        map_pos.x +=  - self.offset_float.x;
+        map_pos.y +=  - self.offset_float.y;
+    }
+};
+
+
 enum class ScreensID {
-    Start,
+    StartMenu,
     FirstLevel,
 };
 
@@ -208,10 +267,16 @@ enum class ScreensID {
 struct GameStatePersistent {
     bool is_game_running;
     ScreensID curent_screen;
+    PLayer pla;
+    Camera camera;
 
     static_fn init() noexcept -> GameStatePersistent {
         return GameStatePersistent{
             .is_game_running = true,
+            .curent_screen = ScreensID::StartMenu,
+            .pla = PLayer::init(0,0),
+            .camera = Camera{ .offset_float = Vector2f::zero() },
+    
         };
     }
 };
@@ -245,6 +310,15 @@ struct Renderer {
             return std::unexpected(Errors::RendererInitErr::SDLCreateRendererErr);
         }
 
+        let res {SDL_RenderSetLogicalSize(renderer, LOGICAL_RES_1280, LOGICAL_RES_720)};
+        if (res != 0)
+        {
+            return std::unexpected(Errors::RendererInitErr::SDLCreateRendererErr);
+
+        }
+        
+
+
         return Renderer{
             .raw_window = window,
             .raw_renderer = renderer,
@@ -259,7 +333,7 @@ struct Renderer {
         if ((init_flags & flags) != flags) {
             return std::unexpected(Errors::IMGInitErr::SDLIMGInitErr);
         }
-     
+
         return {};
     }
 
@@ -270,18 +344,37 @@ struct Renderer {
         SDL_Quit();
     }
 
-    // fn copy(this Renderer& self, Texture texture, Vector2f pos /* src Vecotr2*/ )noexcept-> void{
-    //     let srcrect {SDL_Rect{
-    //         .x=static_cast<i32>(pos.x),
-    //         .y=static_cast<i32>(pos.y),
-    //         .w=0,
-    //         .h=0,
-    //     }};
-    //     (void) SDL_RenderCopy(self.raw_renderer, texture.raw_texure, );
-    // }
+    fn copy_with_size(this Renderer& self, Texture texture, Vector2f pos, const i32 width, const i32 height) noexcept -> void {
+        #ifdef _DEBUG
+        SDL_assert(width > 0);
+        SDL_assert(height > 0);
+        #endif
+        
+        let dstrect{
+            SDL_Rect{
+            .x = static_cast<i32>(pos.x),
+            .y = static_cast<i32>(pos.y),
+            .w = width,
+            .h = height,
+            },
+        };
+        (void)SDL_RenderCopy(self.raw_renderer, texture.raw_texure, nullptr, &dstrect);
+    }
 
-    fn copy(this Renderer& self, Texture texture )noexcept-> void{
-        (void) SDL_RenderCopy(self.raw_renderer, texture.raw_texure, nullptr, nullptr);
+    fn copy_player(this Renderer& self, Texture texture, Vector2f pos /* src Vecotr2*/) noexcept -> void {
+        let dstrect{
+            SDL_Rect{
+            .x = static_cast<i32>(pos.x),
+            .y = static_cast<i32>(pos.y),
+            .w = PLayer::WIDTH,
+            .h = PLayer::HEIGHT,
+            },
+        };
+        (void)SDL_RenderCopy(self.raw_renderer, texture.raw_texure, nullptr, &dstrect);
+    }
+
+    fn copy(this Renderer& self, Texture texture) noexcept -> void {
+        (void)SDL_RenderCopy(self.raw_renderer, texture.raw_texure, nullptr, nullptr);
     }
 
     fn present(this Renderer& self) noexcept -> void {
@@ -340,8 +433,10 @@ bg_internal fn start_screen(Renderer& corr, GameStatePersistent& game) noexcept 
         }
 
         { // shit render core
-            SDL_SetRenderDrawColor(corr.raw_renderer, 255, 0, 0, 255);
+            // SDL_SetRenderDrawColor(corr.raw_renderer, 255, 0, 0, 255);
             (void)SDL_RenderClear(corr.raw_renderer);
+
+
             corr.copy(*textur);
 
             corr.present();
@@ -359,6 +454,31 @@ bg_internal fn level_one_screen(Renderer& corr, GameStatePersistent& game)->void
     bool is_running_screen{ true };
 
     auto fps{ FpsCap(60) };
+    SDL_SetRenderDrawColor(corr.raw_renderer, 0, 0, 0, 255);
+
+    auto pla_tex{ corr.load_texture_from_file("./assets/fish_idle_0.png") };
+    if (not pla_tex) {
+        printf("%s\n", SDL_GetError());
+        printf("failed to load texutre\n");
+        is_running_screen = false;
+        game.is_game_running = false;
+        return;
+    }
+
+
+    auto map_pos{ Vector2f::zero() };
+    auto map_tex{ corr.load_texture_from_file("./assets/map.png") };
+    if (not map_tex) {
+        printf("%s\n", SDL_GetError());
+        printf("failed to load texutre\n");
+        is_running_screen = false;
+        game.is_game_running = false;
+        return;
+    }
+
+    let keyboard{ KeyboardState::init() };
+    i32 mouse_x {};
+    i32 mouse_y {};
 
 
     while (is_running_screen) {
@@ -371,15 +491,41 @@ bg_internal fn level_one_screen(Renderer& corr, GameStatePersistent& game)->void
                     is_running_screen = false;
                     game.is_game_running = false;
                 } break;
+                    // case event::KeyDown: {
+                    // }
 
+                case event::MouseMotion: {
+                    mouse_x= e.motion.x;
+                    mouse_y= e.motion.y;
 
-                default:
-                    break;
+                }break;
+
+                default: break;
             }
         }
+        if (keyboard.is_scancode_pressed(SDL_SCANCODE_A)) {
+            game.pla.position.x -= PLayer::SPEED * fps.dt;
+        }
+        if (keyboard.is_scancode_pressed(SDL_SCANCODE_D)) {
+            game.pla.position.x += PLayer::SPEED * fps.dt;
+        }
+        if (keyboard.is_scancode_pressed(SDL_SCANCODE_W)) {
+            game.pla.position.y -= PLayer::SPEED * fps.dt;
+        }
+        if (keyboard.is_scancode_pressed(SDL_SCANCODE_S)) {
+            game.pla.position.y += PLayer::SPEED * fps.dt;
+        }
+
+
+        // printf("pla {x %f , y %f} map {x %f, y %f}\n", game.pla.position.x, game.pla.position.y, map_pos.x, map_pos.y);
+
+        game.camera.folow_player(game.pla.position, map_pos,mouse_x, mouse_y);
+
         { // shit render code
-            SDL_SetRenderDrawColor(corr.raw_renderer, 0, 255, 0, 255);
             (void)SDL_RenderClear(corr.raw_renderer);
+            corr.copy_with_size(*map_tex, map_pos, 800, 800);
+            corr.copy_player(*pla_tex, game.pla.position);
+
             corr.present();
         }
         fps.end();
@@ -409,7 +555,7 @@ int main() {
 
     while (game.is_game_running) {
         switch (game.curent_screen) {
-            case CORE::ScreensID::Start: {
+            case CORE::ScreensID::StartMenu: {
                 CORE::start_screen(*corr_ok, game);
             } break;
             case CORE::ScreensID::FirstLevel: {
